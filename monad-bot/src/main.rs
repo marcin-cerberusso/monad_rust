@@ -10,6 +10,7 @@ mod listeners;
 mod position;
 mod rpc;
 mod strategies;
+mod streams;
 mod validators;
 
 use config::Config;

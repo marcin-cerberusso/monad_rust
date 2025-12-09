@@ -56,6 +56,17 @@ pub struct Config {
     pub arbitrage_contract: Option<Address>,
     pub arb_scan_interval_ms: u64,
     pub arb_amount_mon: f64,
+
+    // Telegram
+    pub telegram_token: Option<String>,
+    pub telegram_chat_id: Option<String>,
+
+    // Smart Money Tracking
+    pub smart_wallets: Vec<String>,
+
+    // Slippage settings
+    pub buy_slippage_pct: f64,
+    pub sell_slippage_pct: f64,
 }
 
 impl Config {
@@ -157,6 +168,25 @@ impl Config {
             arb_amount_mon: env_var_or("ARB_AMOUNT_MON", "10.0")
                 .parse()
                 .unwrap_or(10.0),
+
+            // Telegram
+            telegram_token: std::env::var("TELEGRAM_TOKEN").ok(),
+            telegram_chat_id: std::env::var("TELEGRAM_CHAT_ID").ok(),
+
+            // Smart Money Tracking
+            smart_wallets: env_var_or("SMART_WALLETS", "0x038a0ce5f55a715bd14688cbeec1433c6cf2009e,0x571b6770ed63863d7cc7d461b1c4ec5504f17faa,0x28ddf82febffc3696dd66738af1ec162dc1189c8")
+                .split(',')
+                .map(|s| s.trim().to_lowercase())
+                .filter(|s| !s.is_empty())
+                .collect(),
+
+            // Slippage settings
+            buy_slippage_pct: env_var_or("BUY_SLIPPAGE_PCT", "5.0")
+                .parse()
+                .unwrap_or(5.0),
+            sell_slippage_pct: env_var_or("SELL_SLIPPAGE_PCT", "15.0")
+                .parse()
+                .unwrap_or(15.0),
         })
     }
 

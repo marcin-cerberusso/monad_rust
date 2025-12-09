@@ -4,42 +4,66 @@
 
 //! nad.fun SDK-based event listener using official CurveStream.
 
-use alloy::primitives::Address;
+use alloy::primitives::{Address, B256, U256};
 use futures_util::{pin_mut, StreamExt};
 use nadfun_sdk::stream::CurveStream;
 use nadfun_sdk::types::{BondingCurveEvent, EventType};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
-/// Token event from nad.fun bonding curve.
+/// Event emitted when a new token is created.
+/// Compatible with the legacy listener interface.
 #[derive(Debug, Clone)]
-pub struct TokenEvent {
-    pub event_type: EventType,
-    pub token: Address,
-    pub name: Option<String>,
-    pub symbol: Option<String>,
+pub struct NewTokenEvent {
+    pub token_address: Address,
+    pub name: String,
+    pub symbol: String,
     pub creator: Option<Address>,
-    pub trader: Option<Address>,
-    pub amount_in: Option<u128>,
-    pub amount_out: Option<u128>,
-    pub initial_liquidity: Option<u128>, // Added for compatibility
-    pub block_number: u64,
+    pub bonding_curve: Option<Address>,
+    pub initial_liquidity: Option<U256>,
+    pub timestamp: Option<u64>,
+    pub tx_hash: Option<B256>,
+}
+
+/// Event emitted when a smart wallet buys - triggers copy trade.
+#[derive(Debug, Clone)]
+pub struct CopyTradeEvent {
+    pub token: Address,
+    pub smart_wallet: Address,
+    pub amount_in: U256,
+    pub amount_out: U256,
+    pub is_buy: bool, // true = buy, false = sell
 }
 
 /// Spawn the CurveStream listener as a background task.
-pub fn spawn_curve_stream(
+/// This replaces the legacy `nadfun::spawn_listener`.
+/// 
+/// # Arguments
+/// * `ws_url` - WebSocket URL for nad.fun CurveStream
+/// * `tx` - Channel to send new token events
+/// * `copy_tx` - Channel to send copy trade events when smart wallets trade
+/// * `smart_wallets` - List of wallet addresses to track as "smart money"
+pub fn spawn_listener(
     ws_url: String,
-    tx: mpsc::Sender<TokenEvent>,
+    tx: mpsc::Sender<NewTokenEvent>,
+    copy_tx: mpsc::Sender<CopyTradeEvent>,
+    smart_wallets: Vec<String>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         info!("🔌 Connecting to nad.fun CurveStream...");
+        if !smart_wallets.is_empty() {
+            info!("👀 Tracking {} smart wallets for copy trading", smart_wallets.len());
+        }
+
+
 
         loop {
             match CurveStream::new(ws_url.clone()).await {
                 Ok(curve_stream) => {
                     info!("✅ Connected to nad.fun CurveStream");
 
-                    // Subscribe to Create, Buy, Sell events
+                    // Subscribe to Create events for new tokens
+                    // We also subscribe to Buy/Sell for logging/debugging, but main loop only cares about Create for now
                     let curve_stream = curve_stream
                         .subscribe_events(vec![EventType::Create, EventType::Buy, EventType::Sell]);
 
@@ -50,89 +74,75 @@ pub fn spawn_curve_stream(
                             while let Some(event_result) = stream.next().await {
                                 match event_result {
                                     Ok(event) => {
-                                        let token_event = match &event {
+                                        match event {
                                             BondingCurveEvent::Create(e) => {
                                                 info!(
                                                     "🆕 NEW TOKEN: {} ({}) at {:?}",
                                                     e.name, e.symbol, e.token
                                                 );
-                                                TokenEvent {
-                                                    event_type: EventType::Create,
-                                                    token: e.token,
-                                                    name: Some(e.name.clone()),
-                                                    symbol: Some(e.symbol.clone()),
+                                                
+                                                let event = NewTokenEvent {
+                                                    token_address: e.token,
+                                                    name: e.name,
+                                                    symbol: e.symbol,
                                                     creator: Some(e.creator),
-                                                    trader: None,
-                                                    amount_in: None,
-                                                    amount_out: None,
-                                                    initial_liquidity: None, // Will be fetched on-chain
-                                                    block_number: e.block_number,
+                                                    bonding_curve: Some(e.pool),
+                                                    initial_liquidity: None, // SDK create event might not have this, strategy handles None or fetching
+                                                    timestamp: Some(chrono::Utc::now().timestamp() as u64),
+                                                    tx_hash: None, // Stream might not provide tx hash directly in event struct yet
+                                                };
+
+                                                // Send to channel
+                                                if let Err(e) = tx.send(event).await {
+                                                    warn!("Failed to send token event: {}", e);
                                                 }
                                             }
                                             BondingCurveEvent::Buy(e) => {
-                                                debug!(
-                                                    "📈 BUY: {:?} | In: {} | Out: {}",
-                                                    e.token,
-                                                    e.amount_in,
-                                                    e.amount_out
-                                                );
-                                                TokenEvent {
-                                                    event_type: EventType::Buy,
-                                                    token: e.token,
-                                                    name: None,
-                                                    symbol: None,
-                                                    creator: None,
-                                                    trader: Some(e.sender),
-                                                    amount_in: Some(e.amount_in.to::<u128>()),
-                                                    amount_out: Some(e.amount_out.to::<u128>()),
-                                                    initial_liquidity: None,
-                                                    block_number: e.block_number,
+                                                let sender = e.sender;
+                                                let sender_lower = format!("{:?}", sender).to_lowercase();
+                                                
+                                                if smart_wallets.iter().any(|w| sender_lower.contains(w)) {
+                                                    info!("🚨 SMART MONEY BUY: {:?} | Amount: {} | Sender: {:?}", e.token, e.amount_in, sender);
+                                                    
+                                                    // Send copy trade event!
+                                                    let copy_event = CopyTradeEvent {
+                                                        token: e.token,
+                                                        smart_wallet: sender,
+                                                        amount_in: e.amount_in,
+                                                        amount_out: e.amount_out,
+                                                        is_buy: true,
+                                                    };
+                                                    if let Err(err) = copy_tx.send(copy_event).await {
+                                                        warn!("Failed to send copy trade event: {}", err);
+                                                    }
                                                 }
+                                                debug!("📈 BUY: {:?} | In: {} | Out: {}", e.token, e.amount_in, e.amount_out);
                                             }
                                             BondingCurveEvent::Sell(e) => {
-                                                debug!(
-                                                    "📉 SELL: {:?} | In: {} | Out: {}",
-                                                    e.token,
-                                                    e.amount_in,
-                                                    e.amount_out
-                                                );
-                                                TokenEvent {
-                                                    event_type: EventType::Sell,
-                                                    token: e.token,
-                                                    name: None,
-                                                    symbol: None,
-                                                    creator: None,
-                                                    trader: Some(e.sender),
-                                                    amount_in: Some(e.amount_in.to::<u128>()),
-                                                    amount_out: Some(e.amount_out.to::<u128>()),
-                                                    initial_liquidity: None,
-                                                    block_number: e.block_number,
+                                                let sender = e.sender;
+                                                let sender_lower = format!("{:?}", sender).to_lowercase();
+
+                                                if smart_wallets.iter().any(|w| sender_lower.contains(w)) {
+                                                    info!("🚨 SMART MONEY SELL: {:?} | Amount: {} | Sender: {:?}", e.token, e.amount_in, sender);
+                                                    
+                                                    // Send copy trade event for sells too!
+                                                    let copy_event = CopyTradeEvent {
+                                                        token: e.token,
+                                                        smart_wallet: sender,
+                                                        amount_in: e.amount_in,
+                                                        amount_out: e.amount_out,
+                                                        is_buy: false,
+                                                    };
+                                                    if let Err(err) = copy_tx.send(copy_event).await {
+                                                        warn!("Failed to send copy trade event: {}", err);
+                                                    }
                                                 }
+                                                debug!("📉 SELL: {:?} | In: {} | Out: {}", e.token, e.amount_in, e.amount_out);
                                             }
                                             BondingCurveEvent::Graduate(e) => {
-                                                info!(
-                                                    "🎓 GRADUATED: {:?} -> Pool: {:?}",
-                                                    e.token, e.pool
-                                                );
-                                                TokenEvent {
-                                                    event_type: EventType::Graduate,
-                                                    token: e.token,
-                                                    name: None,
-                                                    symbol: None,
-                                                    creator: None,
-                                                    trader: None,
-                                                    amount_in: None,
-                                                    amount_out: None,
-                                                    initial_liquidity: None,
-                                                    block_number: e.block_number,
-                                                }
+                                                info!("🎓 GRADUATED: {:?} -> Pool: {:?}", e.token, e.pool);
                                             }
-                                            _ => continue, // Skip Sync/Lock
-                                        };
-
-                                        // Send to channel
-                                        if let Err(e) = tx.send(token_event).await {
-                                            warn!("Failed to send token event: {}", e);
+                                            _ => {}
                                         }
                                     }
                                     Err(e) => {
@@ -149,7 +159,7 @@ pub fn spawn_curve_stream(
                     }
                 }
                 Err(e) => {
-                    error!("Failed to connect to CurveStream: {}", e);
+                    error!("Failed to connect to CurveStream ({}). Retrying...", e);
                 }
             }
 

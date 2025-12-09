@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Trailing stop-loss implementation.
+//! Updated to use SDK for bonding curve token pricing.
 
 use crate::config::Config;
+use crate::executor::SdkExecutor;
 use crate::position::{Position, PositionTracker};
 use alloy::primitives::{Address, U256};
 use alloy::providers::Provider;
@@ -13,7 +15,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
-// Router interface for price queries
+// Router interface for price queries (fallback for graduated tokens)
 sol! {
     #[sol(rpc)]
     interface IRouter {
@@ -71,10 +73,12 @@ pub enum SellDecision {
 }
 
 /// Position monitor that runs trailing stop-loss checks.
+/// Uses SDK for bonding curve tokens and DEX router for graduated tokens.
 pub struct PositionMonitor<P: Provider + Clone> {
     provider: P,
     router: Address,
     wmon: Address,
+    sdk_executor: Arc<SdkExecutor>,
     config: TrailingStopLossConfig,
 }
 
@@ -83,12 +87,14 @@ impl<P: Provider + Clone + 'static> PositionMonitor<P> {
         provider: P,
         router: Address,
         wmon: Address,
+        sdk_executor: Arc<SdkExecutor>,
         config: TrailingStopLossConfig,
     ) -> Self {
         Self {
             provider,
             router,
             wmon,
+            sdk_executor,
             config,
         }
     }
@@ -174,7 +180,23 @@ impl<P: Provider + Clone + 'static> PositionMonitor<P> {
     }
 
     /// Get token price in MON.
+    /// Uses SDK for bonding curve tokens, falls back to DEX router for graduated tokens.
     async fn get_token_price_mon(&self, token: Address, amount: U256) -> Result<f64, String> {
+        // First try SDK (for bonding curve tokens)
+        match self.sdk_executor.get_token_price_mon(token, amount).await {
+            Ok(price) if price > 0.0 => {
+                debug!("📊 SDK price for {:?}: {} MON", token, price);
+                return Ok(price);
+            }
+            Ok(_) => {
+                debug!("SDK returned 0 price for {:?}, trying DEX...", token);
+            }
+            Err(e) => {
+                debug!("SDK price failed for {:?}: {}, trying DEX...", token, e);
+            }
+        }
+
+        // Fallback to DEX router (for graduated tokens with liquidity pools)
         let router = IRouter::new(self.router, &self.provider);
         let path = vec![token, self.wmon];
 
@@ -182,12 +204,13 @@ impl<P: Provider + Clone + 'static> PositionMonitor<P> {
             .getAmountsOut(amount, path)
             .call()
             .await
-            .map_err(|e| format!("getAmountsOut failed: {}", e))?;
+            .map_err(|e| format!("Both SDK and DEX failed: {}", e))?;
 
         // Convert wei to MON
         let mon_wei = amounts[1];
         let mon = mon_wei.to::<u128>() as f64 / 1e18;
         
+        debug!("📊 DEX price for {:?}: {} MON", token, mon);
         Ok(mon)
     }
 }
@@ -197,15 +220,16 @@ pub fn spawn_monitor<P: Provider + Clone + Send + Sync + 'static>(
     provider: P,
     router: Address,
     wmon: Address,
+    sdk_executor: Arc<SdkExecutor>,
     config: TrailingStopLossConfig,
     positions: Arc<Mutex<PositionTracker>>,
     sell_tx: tokio::sync::mpsc::Sender<(Address, SellDecision)>,
 ) -> tokio::task::JoinHandle<()> {
     let interval_sec = config.check_interval_sec;
-    let monitor = PositionMonitor::new(provider, router, wmon, config);
+    let monitor = PositionMonitor::new(provider, router, wmon, sdk_executor, config);
     
     tokio::spawn(async move {
-        info!("📊 Position monitor started (checking every {}s)", interval_sec);
+        info!("📊 Position monitor started (checking every {}s, using SDK for pricing)", interval_sec);
         
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(interval_sec)).await;

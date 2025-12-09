@@ -1,0 +1,22 @@
+{
+  "0xe559161f695f46171f65d7b4f48db8679c507777": {
+    "token": "0xe559161f695f46171f65d7b4f48db8679c507777",
+    "name": "POKEMON",
+    "symbol": "POKEMON",
+    "amount": "0x0",
+    "buy_price_mon": 20.0,
+    "buy_time": 1765324418,
+    "highest_price": 20.0,
+    "tx_hash": "0x32d3e13545ee984e91bae4f82ff081cb2a14403f849af5bd7b8c08ba415a4f71"
+  },
+  "0xd86f16297659dcbbc2ae3ca03ea22b8590e77777": {
+    "token": "0xd86f16297659dcbbc2ae3ca03ea22b8590e77777",
+    "name": "MonDonald's",
+    "symbol": "MND",
+    "amount": "0xc630f2b9e4507fa8259",
+    "buy_price_mon": 20.0,
+    "buy_time": 1765323633,
+    "highest_price": 38.36150161310872,
+    "tx_hash": "0x44baf0531a2d9531410ddbbcd3735a91738dbc7072f0a885feb889954787997b"
+  }
+}

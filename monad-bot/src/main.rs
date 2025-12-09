@@ -3,6 +3,7 @@
 
 //! Monad Sniper Bot - Fast token sniping for nad.fun
 
+mod arbitrage;
 mod config;
 mod executor;
 mod listeners;

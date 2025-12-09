@@ -49,6 +49,12 @@ pub struct Config {
 
     // Blacklist
     pub blacklist: Vec<String>,
+
+    // Arbitrage
+    pub arbitrage_enabled: bool,
+    pub arbitrage_contract: Option<Address>,
+    pub arb_scan_interval_ms: u64,
+    pub arb_amount_mon: f64,
 }
 
 impl Config {
@@ -136,6 +142,20 @@ impl Config {
                 .split(',')
                 .map(|s| s.trim().to_lowercase())
                 .collect(),
+
+            // Arbitrage
+            arbitrage_enabled: env_var_or("ARBITRAGE_ENABLED", "true")
+                .parse()
+                .unwrap_or(true),
+            arbitrage_contract: std::env::var("ARBITRAGE_CONTRACT")
+                .ok()
+                .and_then(|s| parse_address(&s).ok()),
+            arb_scan_interval_ms: env_var_or("ARB_SCAN_INTERVAL_MS", "500")
+                .parse()
+                .unwrap_or(500),
+            arb_amount_mon: env_var_or("ARB_AMOUNT_MON", "10.0")
+                .parse()
+                .unwrap_or(10.0),
         })
     }
 

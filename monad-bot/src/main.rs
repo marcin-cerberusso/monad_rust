@@ -95,6 +95,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         sell_signal_tx,
     );
 
+    // Start arbitrage scanner
+    let (arb_tx, mut arb_rx) = mpsc::channel::<arbitrage::ArbitrageOpportunity>(100);
+    
+    if config.arbitrage_enabled {
+        let pairs = vec![
+            arbitrage::TokenPair {
+                token_a: config.wmon_address,
+                token_b: "0x0F0BDEbF0F83cD1EE3974779Bcb7315f9808c714".parse().unwrap(), // USDC
+                name: "WMON/USDC".to_string(),
+            },
+            arbitrage::TokenPair {
+                token_a: config.wmon_address,
+                token_b: "0xf817257fed379853cDe0fa4F97AB987181B1E5Ea".parse().unwrap(), // USDT  
+                name: "WMON/USDT".to_string(),
+            },
+        ];
+        
+        let scan_amount = config.mon_to_wei(config.arb_amount_mon);
+        let _arb_handle = arbitrage::spawn_scanner(
+            provider.clone(),
+            pairs,
+            scan_amount,
+            config.arb_scan_interval_ms,
+            arb_tx,
+        );
+        info!("🔍 Arbitrage scanner enabled ({}ms interval, {} MON)", 
+              config.arb_scan_interval_ms, config.arb_amount_mon);
+    }
+
     info!("✅ Sniper Bot ready! Waiting for new tokens...");
     info!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 

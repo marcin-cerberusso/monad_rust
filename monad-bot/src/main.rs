@@ -97,7 +97,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Start arbitrage scanner
-    let (arb_tx, mut arb_rx) = mpsc::channel::<arbitrage::ArbitrageOpportunity>(100);
+    let (arb_tx, arb_rx) = mpsc::channel::<arbitrage::ArbitrageOpportunity>(100);
     
     if config.arbitrage_enabled {
         let pairs = vec![

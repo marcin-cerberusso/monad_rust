@@ -1,4 +1,5 @@
 // Copyright (C) 2025 Category Labs, Inc.
+#![allow(dead_code)]
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Blockchain event listener for new token events via QuickNode WebSocket.

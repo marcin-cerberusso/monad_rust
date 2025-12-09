@@ -1,4 +1,5 @@
 // Copyright (C) 2025 Category Labs, Inc.
+#![allow(unused)]
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Bundling detection - identify coordinated wallet manipulation.
@@ -6,7 +7,7 @@
 use alloy::primitives::Address;
 use alloy::providers::Provider;
 use std::collections::HashMap;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 /// Bundling analysis result.
 #[derive(Debug, Clone)]

@@ -1,4 +1,5 @@
 // Copyright (C) 2025 Category Labs, Inc.
+#![allow(unused)]
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! QuickNode Streams webhook server for real-time blockchain data.
@@ -12,7 +13,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 /// QuickNode Stream event for ERC20 transfers.
 #[derive(Debug, Clone, Deserialize, Serialize)]

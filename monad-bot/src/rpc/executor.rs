@@ -1,12 +1,12 @@
 // Copyright (C) 2025 Category Labs, Inc.
+#![allow(unused)]
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Arbitrage executor for sending flash swap transactions.
 
 use alloy::{
-    primitives::{Address, Bytes, U256},
+    primitives::{Address, U256},
     providers::Provider,
-    rpc::types::TransactionRequest,
     sol,
 };
 

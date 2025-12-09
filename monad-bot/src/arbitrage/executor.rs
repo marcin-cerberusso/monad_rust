@@ -1,11 +1,12 @@
 // Copyright (C) 2025 Category Labs, Inc.
+#![allow(unused)]
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Arbitrage executor using FlashArbitrage contract.
 
 use crate::arbitrage::{ArbitrageOpportunity, DexType};
 use crate::config::Config;
-use alloy::primitives::{Address, U256};
+use alloy::primitives::Address;
 use alloy::providers::Provider;
 use alloy::rpc::types::TransactionRequest;
 use alloy::sol;

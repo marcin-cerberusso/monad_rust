@@ -2,11 +2,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Token analysis for filtering scams and low-quality projects.
+//! NOTE: This module is prepared for future integration.
+
+#![allow(unused)]
 
 use alloy::primitives::{Address, U256};
 use alloy::providers::Provider;
 use alloy::sol;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 /// Token analysis result.
 #[derive(Debug, Clone)]

@@ -9,6 +9,5 @@ pub mod sell;
 pub mod swap;
 
 pub use gas::GasStrategy;
-pub use sdk_executor::SdkExecutor;
 pub use sell::SellExecutor;
 pub use swap::SwapExecutor;

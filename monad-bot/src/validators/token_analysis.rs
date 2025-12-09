@@ -4,7 +4,7 @@
 //! Token analysis for filtering scams and low-quality projects.
 //! NOTE: This module is prepared for future integration.
 
-#![allow(unused)]
+// #![allow(unused)]
 
 use alloy::primitives::{Address, U256};
 use alloy::providers::Provider;
@@ -101,8 +101,15 @@ impl<P: Provider + Clone> TokenAnalyzer<P> {
             }
         };
 
+        // If liquidity not provided, use default estimate for new launch (~85 MON)
+        let liquidity_used = if liquidity_mon > 0.0 {
+            liquidity_mon
+        } else {
+            85.0
+        };
+
         // Calculate market cap (liquidity * 2 is rough estimate)
-        let market_cap_usd = liquidity_mon * self.mon_price_usd * 2.0;
+        let market_cap_usd = liquidity_used * self.mon_price_usd * 2.0;
 
         // Check dev holdings if dev wallet provided
         let dev_holding_pct = if let Some(dev) = dev_wallet {

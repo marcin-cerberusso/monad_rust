@@ -97,7 +97,7 @@ impl SniperStrategy {
     /// Evaluate whether to buy a new token on nad.fun.
     ///
     /// Returns `Some(BuyDecision)` if we should buy, `None` otherwise.
-    pub async fn should_buy(&self, token: &NewTokenEvent) -> Option<BuyDecision> {
+    pub async fn should_buy(&self, token: &NewTokenEvent, analysis: &crate::validators::TokenAnalysis) -> Option<BuyDecision> {
         if !self.enabled {
             debug!("Sniper disabled, skipping");
             return None;
@@ -134,6 +134,27 @@ impl SniperStrategy {
             warn!(
                 "❌ REJECT [LIQUIDITY]: {} ({}) - below 100 MON minimum",
                 token.name, token.symbol
+            );
+            return None;
+        }
+
+        // ========================================
+        // FILTER 3.5: Safety Analysis (On-Chain)
+        // ========================================
+        if !analysis.is_safe {
+            warn!(
+                "❌ REJECT [SAFETY]: {} ({}) - Unsafe: {}",
+                token.name, token.symbol, 
+                analysis.rejection_reason.as_deref().unwrap_or("Unknown reason")
+            );
+            return None;
+        }
+
+        if analysis.dev_holding_pct > self.filters.max_dev_holding_pct {
+            warn!(
+                "❌ REJECT [DEV]: {} ({}) - Dev holds {:.1}% > {}%",
+                token.name, token.symbol, 
+                analysis.dev_holding_pct, self.filters.max_dev_holding_pct
             );
             return None;
         }

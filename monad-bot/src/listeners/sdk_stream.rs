@@ -22,6 +22,7 @@ pub struct TokenEvent {
     pub trader: Option<Address>,
     pub amount_in: Option<u128>,
     pub amount_out: Option<u128>,
+    pub initial_liquidity: Option<u128>, // Added for compatibility
     pub block_number: u64,
 }
 
@@ -64,6 +65,7 @@ pub fn spawn_curve_stream(
                                                     trader: None,
                                                     amount_in: None,
                                                     amount_out: None,
+                                                    initial_liquidity: None, // Will be fetched on-chain
                                                     block_number: e.block_number,
                                                 }
                                             }
@@ -83,6 +85,7 @@ pub fn spawn_curve_stream(
                                                     trader: Some(e.sender),
                                                     amount_in: Some(e.amount_in.to::<u128>()),
                                                     amount_out: Some(e.amount_out.to::<u128>()),
+                                                    initial_liquidity: None,
                                                     block_number: e.block_number,
                                                 }
                                             }
@@ -102,6 +105,7 @@ pub fn spawn_curve_stream(
                                                     trader: Some(e.sender),
                                                     amount_in: Some(e.amount_in.to::<u128>()),
                                                     amount_out: Some(e.amount_out.to::<u128>()),
+                                                    initial_liquidity: None,
                                                     block_number: e.block_number,
                                                 }
                                             }
@@ -119,6 +123,7 @@ pub fn spawn_curve_stream(
                                                     trader: None,
                                                     amount_in: None,
                                                     amount_out: None,
+                                                    initial_liquidity: None,
                                                     block_number: e.block_number,
                                                 }
                                             }

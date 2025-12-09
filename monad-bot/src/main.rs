@@ -15,8 +15,11 @@ mod validators;
 
 use config::Config;
 use executor::{SellExecutor, SwapExecutor};
-use listeners::{spawn_listener, NewTokenEvent};
+use listeners::NewTokenEvent; // Keep for struct definition
+use listeners::sdk_stream::{spawn_curve_stream, TokenEvent}; // NEW
 use position::{spawn_monitor, Position, PositionTracker, SellDecision, TrailingStopLossConfig};
+use alloy::providers::Provider;
+use nadfun_sdk::types::EventType; // New Import
 use rpc::create_provider;
 use strategies::SniperStrategy;
 
@@ -78,12 +81,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Create channels
-    let (new_token_tx, mut new_token_rx) = mpsc::channel::<NewTokenEvent>(100);
+    let (new_token_tx, mut new_token_rx) = mpsc::channel::<TokenEvent>(100);
     let (sell_signal_tx, mut sell_signal_rx) = mpsc::channel::<(alloy::primitives::Address, SellDecision)>(100);
 
     // Start blockchain event listener
-    info!("🔌 Connecting to Monad WebSocket for events...");
-    let _listener_handle = spawn_listener(config.ws_url.clone(), new_token_tx);
+    info!("🔌 Connecting to Monad WebSocket (SDK CurveStream)...");
+    let _listener_handle = spawn_curve_stream(config.ws_url.clone(), new_token_tx);
 
     // Start position monitor (trailing stop-loss)
     let tsl_config = TrailingStopLossConfig::from_config(&config);
@@ -170,16 +173,58 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    // Initialize Token Analyzer
+    let filter_config = crate::validators::FilterConfig {
+        max_age_minutes: 60,
+        max_dev_holding_pct: 10.0,
+        ..Default::default()
+    };
+    let token_analyzer = crate::validators::TokenAnalyzer::new(
+        provider.clone(),
+        filter_config,
+        0.50, // mon_price_usd (should comes from config)
+    );
+
     // Main event loop - handle new token events
     while let Some(token_event) = new_token_rx.recv().await {
+        // Only handle Create events
+        if !matches!(token_event.event_type, EventType::Create) {
+            continue;
+        }
+
         info!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        let name = token_event.name.clone().unwrap_or_else(|| "Unknown".to_string());
+        let symbol = token_event.symbol.clone().unwrap_or_else(|| "UNK".to_string());
+
         info!(
             "🆕 New token: {} ({}) at {:?}",
-            token_event.name, token_event.symbol, token_event.token_address
+            name, symbol, token_event.token
         );
 
+        // Perform analysis (Safety Check)
+        let analysis = token_analyzer.analyze(
+            token_event.token,
+            token_event.creator,
+            chrono::Utc::now().timestamp() as u64, // Use current time
+            0.0, // Let analyzer fetch/default
+        ).await;
+
+        info!("🛡️ Analysis: Safe={}, Dev={:.1}%", analysis.is_safe, analysis.dev_holding_pct);
+
+        // Map to NewTokenEvent for Strategy
+        let strategy_event = NewTokenEvent {
+            token_address: token_event.token,
+            name: name.clone(),
+            symbol: symbol.clone(),
+            creator: token_event.creator,
+            bonding_curve: None,
+            initial_liquidity: None,
+            timestamp: Some(chrono::Utc::now().timestamp() as u64),
+            tx_hash: None,
+        };
+
         // Check if we should buy
-        match strategy.should_buy(&token_event).await {
+        match strategy.should_buy(&strategy_event, &analysis).await {
             Some(decision) => {
                 // Execute buy
                 match buy_executor.buy(&decision).await {

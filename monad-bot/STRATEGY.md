@@ -2,20 +2,21 @@
 
 ## Executive Summary
 
-Bot automatyzujący handel memecoinami na **nad.fun (Monad)**. Oparty na strategii Pump.fun z zaawansowanymi filtrami bezpieczeństwa i whale tracking.
+Bot automatyzujący handel memecoinami na **nad.fun (Monad)**. Zoptymalizowany dla specyfiki Monad blockchain z wysoką przepustowością i szybką finalnością.
 
 ---
 
-## 📊 Token Categories (Meta Framework)
+## ⚡ Monad vs Solana (Key Differences)
 
-| Category | Driver | Lifespan | Bot Action |
-|----------|--------|----------|------------|
-| **Culture Coins** | Community | Long | Monitor, don't snipe |
-| **Viral Trends** | Analytics + Catalyst | Medium | ✅ SNIPE on early dip |
-| **Utility** | KOLs + Flywheels | Long | Monitor for entry |
-| **News** | Twitter + MSM | Short | ✅ FAST SNIPE |
-| **Gambles** | Off-Meta | Very Short | High risk, small size |
-| **Cabal** | Insider groups | Variable | AVOID (bundling) |
+| Parametr | Pump.fun (Solana) | **nad.fun (Monad)** |
+|----------|-------------------|---------------------|
+| **TPS** | ~400 | **10,000** |
+| **Block Time** | ~400ms | **400ms** |
+| **Finality** | ~12s | **~800ms** |
+| **Migration MCap** | ~$50k | **~$1.3M** (80% sold) |
+| **Entry Zone** | $15k-$25k | **$50k-$200k** |
+| **Take Profit** | $40k-$50k | **$500k-$1M** |
+| **DEX** | Raydium | **Capricorn CLMM** |
 
 ---
 
@@ -32,22 +33,22 @@ Bot automatyzujący handel memecoinami na **nad.fun (Monad)**. Oparty na strateg
 │         │                   │                   │               │
 │         ▼                   ▼                   ▼               │
 │  ┌─────────────┐     ┌─────────────┐     ┌─────────────┐       │
-│  │ nad.fun WS  │────▶│ Age < 30min │────▶│ Buy 5 MON   │       │
-│  │ (new tokens)│     │ Dev < 8%    │     │ Slippage 5% │       │
-│  └─────────────┘     │ MC 15k-25k  │     └──────┬──────┘       │
-│         │            │ No bundling │            │               │
+│  │ nad.fun WS  │────▶│ Age < 60min │────▶│ Buy 10 MON  │       │
+│  │ Moralis API │     │ Dev < 10%   │     │ Slippage 5% │       │
+│  │ QuickNode   │     │ MC $50k-200k│     └──────┬──────┘       │
+│  └─────────────┘     │ No bundling │            │               │
 │         │            └─────────────┘            ▼               │
-│  ┌─────────────┐                        ┌─────────────┐        │
-│  │ QuickNode   │                        │ Position    │        │
-│  │ Streams     │─────────────────────▶  │ Manager     │        │
-│  │ (whales)    │                        └──────┬──────┘        │
+│         │                                ┌─────────────┐        │
+│  ┌─────────────┐                        │ Position    │        │
+│  │ Whale       │───────────────────────▶│ Manager     │        │
+│  │ Tracking    │                        └──────┬──────┘        │
 │  └─────────────┘                               │               │
 │                                                ▼               │
 │                                        ┌─────────────┐        │
 │                                        │ Exit Rules  │        │
-│                                        │ MC > 40k TP │        │
+│                                        │ 2.5x TP     │        │
 │                                        │ -30% SL     │        │
-│                                        │ Trail 20%   │        │
+│                                        │ $1.3M migr  │        │
 │                                        └─────────────┘        │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
@@ -55,33 +56,41 @@ Bot automatyzujący handel memecoinami na **nad.fun (Monad)**. Oparty na strateg
 
 ---
 
-## 🛡️ Validation Filters
+## 🛡️ Validation Filters (Monad-Optimized)
 
 ### Filter 1: Token Age
 
 ```
-IF token_age > 30 minutes:
+IF token_age > 60 minutes:
     REJECT "Momentum lost"
 ```
 
 ### Filter 2: Dev Holdings
 
 ```
-IF dev_wallet_balance / total_supply > 8%:
+IF dev_wallet_balance / total_supply > 10%:
     REJECT "Rug pull risk"
 ```
 
-### Filter 3: Market Cap Zone
+### Filter 3: Market Cap Entry Zone
 
 ```
-IF market_cap < $15,000:
-    REJECT "Too early, wait for momentum"
+IF market_cap < $50,000:
+    WAIT "Too early, monitoring..."
     
-IF market_cap > $25,000:
-    REJECT "Entry too late, risk/reward poor"
+IF market_cap > $200,000:
+    REJECT "Past entry zone"
 ```
 
-### Filter 4: Bundling Detection
+### Filter 4: Risk/Reward Check
+
+```
+potential_profit = take_profit_mcap / current_mcap
+IF potential_profit < 2x:
+    REJECT "Insufficient upside"
+```
+
+### Filter 5: Bundling Detection
 
 ```
 FOR each top_holder:
@@ -89,41 +98,33 @@ FOR each top_holder:
     
 IF 3+ holders share same funding_source:
     REJECT "Coordinated manipulation"
-    
-IF majority holders have nonce = 0:
-    REJECT "Fresh wallets = likely scam"
 ```
 
 ---
 
-## 💰 Entry Strategy
+## 💰 Entry Strategy (Value Zone)
 
-### Value Zone: $15k - $25k Market Cap
+### Entry Zone: $50k - $200k Market Cap
 
 ```
-┌────────────────────────────────────────────┐
-│                                            │
-│   ▲ Price                                  │
-│   │                                        │
-│   │        ╱╲                              │
-│   │       ╱  ╲     Migration (~$50k)       │
-│   │      ╱    ╲─── SELL HERE ────────      │
-│   │     ╱      ╲                           │
-│   │    ╱        ╲                          │
-│   │   ╱          ╲                         │
-│   │──╱── BUY HERE ╲── $15k-25k zone        │
-│   │ ╱              ╲                       │
-│   │╱                ╲_____                 │
-│   └────────────────────────────▶ Time      │
-│                                            │
-└────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────┐
+│                                                            │
+│   ▲ Market Cap                                             │
+│   │                                                        │
+│   │  $1.3M ─────────────────── MIGRATION (80% sold)        │
+│   │         ╱                                              │
+│   │  $500k ╱────────────────── TAKE PROFIT (2.5x)          │
+│   │       ╱                                                │
+│   │ $200k╱─────────────────── MAX ENTRY                    │
+│   │     ╱                                                  │
+│   │    ╱                                                   │
+│   │   ╱                                                    │
+│   │$50k ────────────────────── MIN ENTRY                   │
+│   │  ╱                                                     │
+│   └────────────────────────────────────────▶ Time          │
+│                                                            │
+└────────────────────────────────────────────────────────────┘
 ```
-
-**Rules:**
-
-1. Wait for first pullback (40-60% from local high)
-2. RSI < 30 on 5-second timeframe = oversold
-3. Volume increasing = confirmation
 
 ---
 
@@ -133,8 +134,9 @@ IF majority holders have nonce = 0:
 
 | Market Cap | Action |
 |------------|--------|
-| $40,000 | Sell 50% |
-| $50,000 | Sell remaining 50% (migration level) |
+| 2.5x from entry | Sell 50% |
+| $500k+ | Sell 75% |
+| $1M+ | Sell remaining (approaching migration) |
 
 ### Stop Loss
 
@@ -142,55 +144,33 @@ IF majority holders have nonce = 0:
 |-----------|--------|
 | -30% from entry | Hard stop, sell 100% |
 | -20% from highest | Trailing stop (if profit > 50%) |
-| No volume 5 min | Exit immediately |
-| Max hold 48h | Force exit |
+| No volume 10 min | Exit immediately |
+| Max hold 24h | Force exit |
 
 ---
 
-## 🐋 Whale Tracking (QuickNode Streams)
+## 🐋 Data Sources
 
-### Data Flow
+### Primary: QuickNode Pro
+
+- WebSocket for nad.fun events
+- Streams for whale tracking
+- Low latency RPC
+
+### Secondary: Moralis API
 
 ```
-QuickNode Streams
-       │
-       ▼ Webhook
-┌─────────────────┐
-│ ERC20 Transfers │
-│    > 10k MON    │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ Whale Alert     │
-│ Copy Trade?     │
-└────────┬────────┘
-         │
-    ┌────┴────┐
-    │         │
-    ▼         ▼
-  BUY      IGNORE
-(smart $)  (unknown)
+Moralis Monad Support:
+- Wallet balances & history
+- Token transfers tracking
+- NFT data
+- Streams for real-time events
 ```
 
-### Smart Money Wallets
+### Backup: Alchemy
 
-Track wallets with:
-
-- Win rate > 60%
-- Average ROI > 100%
-- Account age > 30 days
-
----
-
-## ⚡ MEV Protection
-
-| Technique | Implementation |
-|-----------|----------------|
-| Aggressive Gas | 1.5x base fee |
-| Private Mempool | QuickNode addon |
-| Tight Slippage | 5% max |
-| Fast Execution | < 100ms latency |
+- Monad mainnet RPC
+- Transaction history queries
 
 ---
 
@@ -198,7 +178,7 @@ Track wallets with:
 
 ```
 monad-bot/src/
-├── main.rs              # Entry point, orchestration
+├── main.rs              # Entry point
 ├── config.rs            # Environment variables
 ├── listeners/
 │   └── nadfun.rs        # WebSocket event listener
@@ -208,7 +188,7 @@ monad-bot/src/
 │   ├── honeypot.rs      # Sell simulation
 │   └── liquidity.rs     # Liquidity check
 ├── strategies/
-│   └── sniper.rs        # Buy decision logic
+│   └── sniper.rs        # Monad-optimized buy logic
 ├── executor/
 │   ├── swap.rs          # Buy transactions
 │   ├── sell.rs          # Sell transactions
@@ -220,24 +200,24 @@ monad-bot/src/
 │   └── webhook.rs       # QuickNode Streams
 └── arbitrage/
     ├── scanner.rs       # Price comparison
-    ├── kuru.rs          # Kuru DEX feed
-    └── octoswap.rs      # OctoSwap feed
+    └── *.rs             # DEX integrations
 ```
 
 ---
 
-## 🔧 Configuration
+## 🔧 Configuration (Monad-Optimized)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AUTO_SNIPE_AMOUNT_MON` | 5 | Amount per trade |
-| `MAX_AGE_MINUTES` | 30 | Max token age |
-| `MAX_DEV_HOLDING_PCT` | 8 | Max dev ownership |
-| `MIN_MARKET_CAP_USD` | 15000 | Entry zone start |
-| `MAX_MARKET_CAP_USD` | 25000 | Entry zone end |
-| `TRAILING_DROP_PCT` | 20 | Trailing stop % |
+| `AUTO_SNIPE_AMOUNT_MON` | 10 | Amount per trade |
+| `MAX_AGE_MINUTES` | 60 | Max token age |
+| `MAX_DEV_HOLDING_PCT` | 10 | Max dev ownership |
+| `MIN_MARKET_CAP_USD` | 50000 | Entry zone start |
+| `MAX_MARKET_CAP_USD` | 200000 | Entry zone end |
+| `TAKE_PROFIT_MCAP` | 500000 | TP target |
+| `MIGRATION_MCAP` | 1300000 | Migration threshold |
+| `PROFIT_MULTIPLIER` | 2.5 | Target profit |
 | `HARD_STOP_LOSS_PCT` | -30 | Hard stop % |
-| `SECURE_PROFIT_PCT` | 100 | Take profit trigger |
 
 ---
 
@@ -246,27 +226,40 @@ monad-bot/src/
 ### Position Sizing
 
 ```
-Max position = 1% of portfolio
-Max concurrent = 5 positions
-Daily loss limit = 10% of portfolio
+Max position = 2% of portfolio
+Max concurrent = 3 positions
+Daily loss limit = 15% of portfolio
 ```
 
 ### Red Flags (Auto-Reject)
 
-- [ ] Dev holdings > 8%
-- [ ] Token age > 30 min
+- [ ] Dev holdings > 10%
+- [ ] Token age > 60 min
+- [ ] Market cap > $200k
 - [ ] Same funding source for 3+ holders
-- [ ] All holders have nonce = 0
 - [ ] Name contains: test, scam, rug, honeypot
 
 ---
 
-## 📈 Expected Performance
+## 📈 Expected Performance (Monad)
 
 | Metric | Target |
 |--------|--------|
-| Win Rate | 40-50% |
-| Avg Win | 2-4x |
-| Avg Loss | -20-30% |
-| Risk/Reward | 1:3 |
-| Daily Trades | 5-15 |
+| Win Rate | 35-45% |
+| Avg Win | 2-3x |
+| Avg Loss | -25% |
+| Risk/Reward | 1:4 |
+| Daily Trades | 3-8 |
+| Monthly ROI | 50-100% |
+
+---
+
+## 🔗 APIs & Integrations
+
+| Service | Purpose | Status |
+|---------|---------|--------|
+| QuickNode Pro | RPC + WebSocket + Streams | ✅ Active |
+| Moralis | Wallet data, transfers, events | 🔧 To integrate |
+| Alchemy | Backup RPC | ✅ Configured |
+| nad.fun | Token events | ✅ Monitoring |
+| Capricorn | DEX swaps | ✅ Ready |

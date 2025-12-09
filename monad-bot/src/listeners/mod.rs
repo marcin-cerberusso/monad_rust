@@ -4,5 +4,7 @@
 //! Event listeners for detecting new tokens.
 
 pub mod nadfun;
+pub mod sdk_stream;
 
 pub use nadfun::{spawn_listener, NewTokenEvent};
+pub use sdk_stream::{spawn_curve_stream, TokenEvent};

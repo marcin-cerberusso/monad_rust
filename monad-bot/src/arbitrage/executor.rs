@@ -29,7 +29,7 @@ sol! {
 /// Router addresses for each DEX.
 fn get_router(dex: DexType) -> Address {
     match dex {
-        DexType::Kuru => "0x0d3a1BE29E9dEd63c7a5678b31e847D68F71FFa2".parse().unwrap(),
+        DexType::ZKSwap => "0x68225b5ba7cE309fD0d3f0C9A74b947c7d7e03dA".parse().unwrap(),
         DexType::OctoSwap => "0x60fd5Aa15Debd5ffdEfB5129FD9FD8A34d80d608".parse().unwrap(),
     }
 }
@@ -79,7 +79,7 @@ impl<P: Provider + Clone> ArbitrageExecutor<P> {
 
         let call = contract.executeArbitrage(
             get_router(DexType::OctoSwap), // pairA
-            get_router(DexType::Kuru),      // pairB
+            get_router(DexType::ZKSwap),   // pairB
             opp.token_a,
             opp.amount_in,
             borrow_from_a,

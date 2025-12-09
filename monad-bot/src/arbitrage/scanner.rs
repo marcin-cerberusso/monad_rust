@@ -1,12 +1,12 @@
 // Copyright (C) 2025 Category Labs, Inc.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Arbitrage opportunity scanner.
+//! Arbitrage opportunity scanner for Monad DEXs.
+//! Compares prices between ZKSwap and OctoSwap.
 
-use super::{kuru, octoswap};
+use super::{octoswap, zkswap};
 use alloy::primitives::{Address, U256};
 use alloy::providers::Provider;
-use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
@@ -27,14 +27,14 @@ pub struct ArbitrageOpportunity {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DexType {
-    Kuru,
+    ZKSwap,
     OctoSwap,
 }
 
 impl std::fmt::Display for DexType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DexType::Kuru => write!(f, "Kuru"),
+            DexType::ZKSwap => write!(f, "ZKSwap"),
             DexType::OctoSwap => write!(f, "OctoSwap"),
         }
     }
@@ -83,7 +83,7 @@ impl<P: Provider + Clone + Send + Sync + 'static> ArbitrageScanner<P> {
                     debug!("No arb for {}", pair.name);
                 }
                 Err(e) => {
-                    warn!("Failed to check {}: {}", pair.name, e);
+                    debug!("Check {} failed: {}", pair.name, e);
                 }
             }
         }
@@ -93,23 +93,23 @@ impl<P: Provider + Clone + Send + Sync + 'static> ArbitrageScanner<P> {
 
     async fn check_pair(&self, pair: &TokenPair) -> Result<Option<ArbitrageOpportunity>, String> {
         // Get quotes from both DEXs
-        let (kuru_quote, octo_quote) = tokio::join!(
-            kuru::get_quote(&self.provider, pair.token_a, pair.token_b, self.scan_amount),
+        let (zkswap_quote, octo_quote) = tokio::join!(
+            zkswap::get_quote(&self.provider, pair.token_a, pair.token_b, self.scan_amount),
             octoswap::get_quote(&self.provider, pair.token_a, pair.token_b, self.scan_amount)
         );
 
-        let kuru_out = kuru_quote?;
+        let zkswap_out = zkswap_quote?;
         let octo_out = octo_quote?;
 
         debug!(
-            "{}: Kuru={}, OctoSwap={}",
-            pair.name, kuru_out, octo_out
+            "{}: ZKSwap={}, OctoSwap={}",
+            pair.name, zkswap_out, octo_out
         );
 
         // Check if there's profitable arbitrage
-        if kuru_out > octo_out {
-            // Buy on OctoSwap (cheaper), sell on Kuru (more expensive)
-            let profit = kuru_out - octo_out;
+        if zkswap_out > octo_out {
+            // Buy on OctoSwap (cheaper), sell on ZKSwap (more expensive)
+            let profit = zkswap_out - octo_out;
             let profit_bps = (profit * U256::from(10000) / octo_out).to::<u64>();
 
             if profit_bps >= self.min_profit_bps {
@@ -118,22 +118,22 @@ impl<P: Provider + Clone + Send + Sync + 'static> ArbitrageScanner<P> {
                     token_b: pair.token_b,
                     amount_in: self.scan_amount,
                     buy_on: DexType::OctoSwap,
-                    sell_on: DexType::Kuru,
+                    sell_on: DexType::ZKSwap,
                     expected_profit: profit,
                     profit_bps,
                 }));
             }
-        } else if octo_out > kuru_out {
-            // Buy on Kuru (cheaper), sell on OctoSwap (more expensive)
-            let profit = octo_out - kuru_out;
-            let profit_bps = (profit * U256::from(10000) / kuru_out).to::<u64>();
+        } else if octo_out > zkswap_out {
+            // Buy on ZKSwap (cheaper), sell on OctoSwap (more expensive)
+            let profit = octo_out - zkswap_out;
+            let profit_bps = (profit * U256::from(10000) / zkswap_out).to::<u64>();
 
             if profit_bps >= self.min_profit_bps {
                 return Ok(Some(ArbitrageOpportunity {
                     token_a: pair.token_a,
                     token_b: pair.token_b,
                     amount_in: self.scan_amount,
-                    buy_on: DexType::Kuru,
+                    buy_on: DexType::ZKSwap,
                     sell_on: DexType::OctoSwap,
                     expected_profit: profit,
                     profit_bps,
@@ -156,7 +156,7 @@ pub fn spawn_scanner<P: Provider + Clone + Send + Sync + 'static>(
     tokio::spawn(async move {
         let scanner = ArbitrageScanner::new(provider, pairs, scan_amount);
         
-        info!("🔍 Arbitrage scanner started ({}ms interval)", interval_ms);
+        info!("🔍 Arbitrage scanner started (ZKSwap ↔ OctoSwap, {}ms interval)", interval_ms);
 
         loop {
             let opportunities = scanner.scan().await;

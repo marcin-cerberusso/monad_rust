@@ -33,6 +33,7 @@ pub struct CopyTradeEvent {
     pub amount_in: U256,
     pub amount_out: U256,
     pub is_buy: bool, // true = buy, false = sell
+    pub is_scout_only: bool, // true = observe only, do not copy
 }
 
 /// Spawn the CurveStream listener as a background task.
@@ -101,20 +102,33 @@ pub fn spawn_listener(
                                                 let sender = e.sender;
                                                 let sender_lower = format!("{:?}", sender).to_lowercase();
                                                 
-                                                if smart_wallets.iter().any(|w| sender_lower.contains(w)) {
+                                                let is_target = smart_wallets.iter().any(|w| sender_lower.contains(w));
+                                                
+                                                // Calculate value roughly (amount_in is MON for Buy)
+                                                // Note: U256 to f64 helper needed or simple conversion
+                                                let val_str = e.amount_in.to_string();
+                                                let val_f64: f64 = val_str.parse().unwrap_or(0.0) / 1e18;
+
+                                                // Scout Filter: Ignore small unknown trades (< 5.0 MON)
+                                                if !is_target && val_f64 < 5.0 {
+                                                    continue;
+                                                }
+
+                                                if is_target {
                                                     info!("🚨 SMART MONEY BUY: {:?} | Amount: {} | Sender: {:?}", e.token, e.amount_in, sender);
-                                                    
-                                                    // Send copy trade event!
-                                                    let copy_event = CopyTradeEvent {
-                                                        token: e.token,
-                                                        smart_wallet: sender,
-                                                        amount_in: e.amount_in,
-                                                        amount_out: e.amount_out,
-                                                        is_buy: true,
-                                                    };
-                                                    if let Err(err) = copy_tx.send(copy_event).await {
-                                                        warn!("Failed to send copy trade event: {}", err);
-                                                    }
+                                                }
+
+                                                // Send event
+                                                let copy_event = CopyTradeEvent {
+                                                    token: e.token,
+                                                    smart_wallet: sender,
+                                                    amount_in: e.amount_in,
+                                                    amount_out: e.amount_out,
+                                                    is_buy: true,
+                                                    is_scout_only: !is_target,
+                                                };
+                                                if let Err(err) = copy_tx.send(copy_event).await {
+                                                    warn!("Failed to send event: {}", err);
                                                 }
                                                 debug!("📈 BUY: {:?} | In: {} | Out: {}", e.token, e.amount_in, e.amount_out);
                                             }
@@ -122,21 +136,35 @@ pub fn spawn_listener(
                                                 let sender = e.sender;
                                                 let sender_lower = format!("{:?}", sender).to_lowercase();
 
-                                                if smart_wallets.iter().any(|w| sender_lower.contains(w)) {
-                                                    info!("🚨 SMART MONEY SELL: {:?} | Amount: {} | Sender: {:?}", e.token, e.amount_in, sender);
-                                                    
-                                                    // Send copy trade event for sells too!
-                                                    let copy_event = CopyTradeEvent {
-                                                        token: e.token,
-                                                        smart_wallet: sender,
-                                                        amount_in: e.amount_in,
-                                                        amount_out: e.amount_out,
-                                                        is_buy: false,
-                                                    };
-                                                    if let Err(err) = copy_tx.send(copy_event).await {
-                                                        warn!("Failed to send copy trade event: {}", err);
-                                                    }
+
+                                                let is_target = smart_wallets.iter().any(|w| sender_lower.contains(w));
+
+                                                // Calculate value roughly (amount_out is MON for Sell)
+                                                let val_str = e.amount_out.to_string();
+                                                let val_f64: f64 = val_str.parse().unwrap_or(0.0) / 1e18;
+
+                                                // Scout Filter: Ignore small unrecgonized sells
+                                                if !is_target && val_f64 < 5.0 {
+                                                    continue;
                                                 }
+
+                                                if is_target {
+                                                    info!("🚨 SMART MONEY SELL: {:?} | Amount: {} | Sender: {:?}", e.token, e.amount_in, sender);
+                                                }
+
+                                                // Send copy trade event for sells too!
+                                                let copy_event = CopyTradeEvent {
+                                                    token: e.token,
+                                                    smart_wallet: sender,
+                                                    amount_in: e.amount_in,
+                                                    amount_out: e.amount_out,
+                                                    is_buy: false,
+                                                    is_scout_only: !is_target,
+                                                };
+                                                if let Err(err) = copy_tx.send(copy_event).await {
+                                                    warn!("Failed to send event: {}", err);
+                                                }
+
                                                 debug!("📉 SELL: {:?} | In: {} | Out: {}", e.token, e.amount_in, e.amount_out);
                                             }
                                             BondingCurveEvent::Graduate(e) => {

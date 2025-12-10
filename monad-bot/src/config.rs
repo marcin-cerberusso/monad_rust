@@ -61,8 +61,10 @@ pub struct Config {
     pub telegram_token: Option<String>,
     pub telegram_chat_id: Option<String>,
 
-    // Smart Money Tracking
+    // Copy Trade settings
     pub smart_wallets: Vec<String>,
+    pub whale_copy_pct: f64,
+    pub max_snipe_amount: f64,
 
     // Slippage settings
     pub buy_slippage_pct: f64,
@@ -179,6 +181,13 @@ impl Config {
                 .map(|s| s.trim().to_lowercase())
                 .filter(|s| !s.is_empty())
                 .collect(),
+
+            whale_copy_pct: env_var_or("WHALE_COPY_PCT", "20.0")
+                .parse()
+                .unwrap_or(20.0),
+            max_snipe_amount: env_var_or("MAX_SNIPE_AMOUNT", "50.0")
+                .parse()
+                .unwrap_or(50.0),
 
             // Slippage settings
             buy_slippage_pct: env_var_or("BUY_SLIPPAGE_PCT", "5.0")

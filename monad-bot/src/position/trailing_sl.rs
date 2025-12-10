@@ -68,6 +68,8 @@ pub enum SellDecision {
     HardStopLoss { current_pnl: f64 },
     /// Sell partial to secure profits.
     SecureProfit { portion: f64, current_pnl: f64 },
+    /// Sell due to Copy Sell or external signal.
+    CopySell { reason: String },
     /// Sell due to max hold time exceeded.
     MaxHoldTime { hours_held: u64 },
 }

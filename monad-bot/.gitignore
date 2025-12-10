@@ -1,1 +1,8 @@
 /target
+.env
+positions.json
+wallet_stats.json
+wallet_stats_*.json
+trades.json
+**/*.log
+**/*.db

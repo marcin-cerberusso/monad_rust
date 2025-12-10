@@ -24,12 +24,14 @@ use telegram::TelegramNotifier;
 use position::{spawn_monitor, Position, PositionTracker, SellDecision, TrailingStopLossConfig};
 use rpc::create_provider;
 use strategies::SniperStrategy;
+use validators::wallet_tracker::WalletTracker;
 use validators::{TokenAnalyzer, FilterConfig};
 
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use tokio::signal;
-use tracing::{error, info, warn, Level};
+use tracing::{info, warn, error, debug, Level};
+use std::collections::{HashMap, HashSet};
 use tracing_subscriber::FmtSubscriber;
 
 #[tokio::main]
@@ -67,8 +69,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             private_key: config.private_key.clone(),
             chain_id: config.chain_id,
         })?;
-        let filter_config = crate::validators::FilterConfig::default();
-        let analyzer = crate::validators::TokenAnalyzer::new(provider, filter_config, 0.50);
+        let filter_config = FilterConfig::default(); // Changed to use the imported FilterConfig
+        let analyzer = TokenAnalyzer::new(provider, filter_config, 0.50); // Changed to use the imported TokenAnalyzer
         
         let analysis = analyzer.analyze(token_addr, None, 0, 1000.0).await;
         info!("📊 Results: {:?}", analysis);
@@ -132,6 +134,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("📊 Loaded {} existing positions", pos_guard.len());
     }
 
+    // Load Wallet Tracker
+    let wallet_tracker = Arc::new(Mutex::new(WalletTracker::load()));
+    info!("📊 Wallet Tracker loaded");
+
     // Create channels
     let (new_token_tx, mut new_token_rx) = mpsc::channel::<NewTokenEvent>(100);
     let (sell_signal_tx, sell_signal_rx) = mpsc::channel::<(alloy::primitives::Address, SellDecision)>(100);
@@ -155,7 +161,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&sdk_executor),
         tsl_config,
         Arc::clone(&positions),
-        sell_signal_tx,
+        sell_signal_tx.clone(),
     );
 
     // Initialize Telegram notifier
@@ -218,6 +224,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Clone positions for shutdown handler
     let positions_for_shutdown = Arc::clone(&positions);
+
+    // Dynamic Smart Wallets (found by Scout)
+    let mut dynamic_smart_wallets: HashSet<alloy::primitives::Address> = HashSet::new();
 
     // Main event loop with graceful shutdown
     loop {
@@ -319,6 +328,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             
             // Handle copy trade events from smart wallets
             Some(copy_event) = copy_trade_rx.recv() => {
+                // Determine if we should execute (Configured or Promoted)
+                let is_dynamic_target = dynamic_smart_wallets.contains(&copy_event.smart_wallet);
+                let should_execute = !copy_event.is_scout_only || is_dynamic_target;
+
+                if !should_execute {
+                    // SCOUT MODE: Track silent wallet performance
+                    if copy_event.is_buy {
+                        let val_mon = copy_event.amount_in.to::<u128>() as f64 / 1e18;
+                        wallet_tracker.lock().await.record_buy(copy_event.smart_wallet, copy_event.token, val_mon);
+                    } else {
+                        let val_mon = copy_event.amount_out.to::<u128>() as f64 / 1e18;
+                        // Record sell returns PnL if trade closed
+                        if let Some(pnl) = wallet_tracker.lock().await.record_sell(copy_event.smart_wallet, copy_event.token, val_mon) {
+                            // Check for promotion
+                            let score = wallet_tracker.lock().await.get_score(&copy_event.smart_wallet);
+                            if score > 80.0 {
+                                info!("👑 NEW WHALE PROMOTED: {:?} (Score: {:.1})", copy_event.smart_wallet, score);
+                                dynamic_smart_wallets.insert(copy_event.smart_wallet);
+                                telegram.send_message(&format!(
+                                    "👑 *NEW WHALE DISCOVERED*\nAddress: `{:?}`\nScore: {:.1}\nPnL: {:.2} MON\nAdded to Copy List! 🚀", 
+                                    copy_event.smart_wallet, score, pnl
+                                )).await;
+                            }
+                        }
+                    }
+                    continue; // Skip execution
+                }
+
                 info!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
                 
                 if copy_event.is_buy {
@@ -326,6 +363,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         "📋 COPY TRADE BUY: {:?} | Smart Wallet: {:?} | Amount: {}",
                         copy_event.token, copy_event.smart_wallet, copy_event.amount_in
                     );
+
+                    // Check Wallet Score
+                    let score = wallet_tracker.lock().await.get_score(&copy_event.smart_wallet);
+                    if score < 40.0 {
+                        warn!("🚫 Ignoring Copy Buy from {:?} - Score too low: {:.2}", copy_event.smart_wallet, score);
+                        continue;
+                    }
                     
                     // Send Telegram notification
                     telegram.send_message(&format!(
@@ -333,8 +377,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         copy_event.smart_wallet, copy_event.token
                     )).await;
                     
-                    // Use SDK executor for bonding curve trades (not DEX router!)
-                    let buy_amount = config.mon_to_wei(config.snipe_amount_mon);
+                    // Use SDK executor for bonding curve trades
+                    // WHALE MODE: Calculate buy amount based on whale's input
+                    let base_amount_mon = config.snipe_amount_mon;
+                    let whale_input_mon = copy_event.amount_in.to::<u128>() as f64 / 1e18;
+                    
+                    let target_amount_mon = if whale_input_mon > 0.5 {
+                        let scaled = whale_input_mon * (config.whale_copy_pct / 100.0);
+                        // Buy at least base_amount, up to max_snipe_amount
+                        f64::max(base_amount_mon, scaled).min(config.max_snipe_amount)
+                    } else {
+                        base_amount_mon
+                    };
+                    
+                    info!(
+                        "🐳 WHALE MODE: Smart Wallet committed {:.2} MON -> We commit {:.2} MON (Base: {}, Cap: {})", 
+                        whale_input_mon, target_amount_mon, base_amount_mon, config.max_snipe_amount
+                    );
+
+                    // Track smart wallet entry
+                    wallet_tracker.lock().await.record_buy(
+                        copy_event.smart_wallet, 
+                        copy_event.token, 
+                        whale_input_mon
+                    );
+                    
+                    let buy_amount = config.mon_to_wei(target_amount_mon);
                     
                     match sdk_executor.buy_token(copy_event.token, buy_amount).await {
                         Ok(tx_hash) => {
@@ -366,7 +434,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             };
                             
                             // Add to positions with actual token info
-                            let buy_price = config.snipe_amount_mon;
+                            let buy_price = target_amount_mon;
                             let position = Position {
                                 token: copy_event.token,
                                 name: token_name,
@@ -387,21 +455,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                 } else {
-                    // Smart wallet selling - we should also consider selling
+                    // Smart wallet selling - track performance and consider selling
+                    let output_mon = copy_event.amount_out.to::<u128>() as f64 / 1e18;
+                    wallet_tracker.lock().await.record_sell(
+                        copy_event.smart_wallet, 
+                        copy_event.token, 
+                        output_mon
+                    );
+
                     info!(
-                        "📋 COPY TRADE SELL SIGNAL: {:?} | Smart Wallet: {:?}",
+                        "🚨 COPY SELL SIGNAL: {:?} | Smart Wallet: {:?}",
                         copy_event.token, copy_event.smart_wallet
                     );
                     
                     // Check if we have this position
                     let pos_guard = positions.lock().await;
-                    if pos_guard.get(&copy_event.token).is_some() {
-                        drop(pos_guard);
+                    if let Some(pos) = pos_guard.get(&copy_event.token) {
+                        let token = copy_event.token;
+                        let wallet = copy_event.smart_wallet;
+                        drop(pos_guard); // Release lock immediately
+
+                        info!("📉 Triggering FORCE SELL for {} due to smart wallet exit...", token);
                         
-                        telegram.send_message(&format!(
-                            "⚠️ *Smart Wallet Selling*\nWallet `{:?}` is selling token `{:?}`\nConsider exiting position!", 
-                            copy_event.smart_wallet, copy_event.token
-                        )).await;
+                        let decision = SellDecision::CopySell {
+                            reason: format!("Smart Wallet {:?} exited", wallet),
+                        };
+
+                        if let Err(e) = sell_signal_tx.send((token, decision)).await {
+                            error!("❌ Failed to send copy sell signal: {}", e);
+                        } else {
+                            telegram.send_message(&format!(
+                                "🚨 *COPY SELL EXECUTED*\nSmart wallet `{:?}` dumped token `{:?}`\nSelling our bag!", 
+                                wallet, token
+                            )).await;
+                        }
+                    } else {
+                        drop(pos_guard);
+                        debug!("Ignoring sell signal for {:?} (not in portfolio)", copy_event.token);
                     }
                 }
             }

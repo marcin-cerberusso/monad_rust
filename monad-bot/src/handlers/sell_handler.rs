@@ -35,16 +35,22 @@ pub fn spawn_sell_handler<P: Provider + Clone + Send + Sync + 'static>(
         
         while let Some((token, decision)) = sell_signal_rx.recv().await {
             // Rate limiting: check if we've tried selling this token recently
-            if let Some(last_attempt) = last_sell_attempt.get(&token) {
-                let elapsed = last_attempt.elapsed();
-                if elapsed < Duration::from_secs(SELL_COOLDOWN_SECS) {
-                    let remaining = SELL_COOLDOWN_SECS - elapsed.as_secs();
-                    info!(
-                        "⏳ Skipping sell for {:?} - cooldown ({} sec remaining)",
-                        token, remaining
-                    );
-                    continue;
+            let is_force_sell = matches!(decision, SellDecision::CopySell { .. } | SellDecision::HardStopLoss { .. });
+            
+            if !is_force_sell {
+                if let Some(last_attempt) = last_sell_attempt.get(&token) {
+                    let elapsed = last_attempt.elapsed();
+                    if elapsed < Duration::from_secs(SELL_COOLDOWN_SECS) {
+                        let remaining = SELL_COOLDOWN_SECS - elapsed.as_secs();
+                        info!(
+                            "⏳ Skipping sell for {:?} - cooldown ({} sec remaining)",
+                            token, remaining
+                        );
+                        continue;
+                    }
                 }
+            } else {
+                 info!("🔥 FORCE SELL triggered - bypassing rate limit!");
             }
             
             // Update last attempt time

@@ -3,6 +3,7 @@ pub mod bundling;
 pub mod honeypot;
 pub mod liquidity;
 pub mod token_analysis;
+pub mod wallet_tracker;
 
 pub use liquidity::check_liquidity;
 pub use token_analysis::{FilterConfig, TokenAnalysis, TokenAnalyzer};
